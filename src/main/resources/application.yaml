@@ -1,3 +1,5 @@
 spring:
   application:
     name: aimuse-server
+  jwt:
+    secret:
