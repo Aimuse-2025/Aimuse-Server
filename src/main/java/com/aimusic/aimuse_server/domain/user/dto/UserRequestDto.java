@@ -5,6 +5,10 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 
+/**
+ * 사용자 회원가입 및 로그인 요청 데이터 모델
+ * 클라이언트에서 서버로 전송되는 데이터에 유효성 검사 규칙 적용됨
+ */
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

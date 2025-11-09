@@ -41,6 +41,11 @@ dependencies {
 	implementation platform('software.amazon.awssdk:bom:2.21.32')               // AWS SDK 버전 관리
 	implementation 'software.amazon.awssdk:s3'
 
+	// JWT 라이브러리 (추가 필요)
+	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5' // Jackson은 JSON 파싱용
+
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.security:spring-security-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
