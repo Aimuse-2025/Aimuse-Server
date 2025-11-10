@@ -7,8 +7,8 @@ import com.aimusic.aimuse_server.domain.user.repository.UserRepository;
 import com.aimusic.aimuse_server.global.security.jwt.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -25,7 +25,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final AuthenticationManagerBuilder authenticationManagerBuilder;
+    private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
 
     /**
@@ -38,7 +38,6 @@ public class AuthService {
     @Transactional
     public UserResponseDto join(UserRequestDto request) {
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-            log.warn("이미 존재하는 이메일입니다: {}", request.getEmail());
             throw new IllegalStateException("이미 가입된 이메일입니다.");
         }
 
@@ -61,14 +60,21 @@ public class AuthService {
      */
     @Transactional
     public String login(UserRequestDto request) {
-        UsernamePasswordAuthenticationToken authenticationToken = request.toAuthentication();
+        try {
+            // 인증 토큰 생성
+            UsernamePasswordAuthenticationToken authenticationToken = request.toAuthentication();
 
-        Authentication authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
+            // 실제 인증 수행 (CustomUserDetailsService의 loadUserByUsername 호출)
+            Authentication authentication = authenticationManager.authenticate(authenticationToken);
 
-        String jwtToken = jwtTokenProvider.generateToken(authentication);
+            // JWT 토큰 생성
+            String jwtToken = jwtTokenProvider.generateToken(authentication);
 
-        log.info("사용자 {} 로그인 및 토큰 발급 완료", request.getEmail());
+            return jwtToken;
 
-        return jwtToken;
+        } catch (Exception e) {
+            log.error("로그인 실패: {}", e.getMessage());
+            throw new RuntimeException("이메일 또는 비밀번호가 일치하지 않습니다.");
+        }
     }
 }
