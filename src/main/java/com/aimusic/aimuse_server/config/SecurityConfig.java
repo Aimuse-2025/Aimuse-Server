@@ -49,7 +49,12 @@ public class SecurityConfig {
         http
                 .cors(cors -> {
                     CorsConfiguration configuration = new CorsConfiguration();
-                    configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000", "http://localhost:8080"));
+                    configuration.setAllowedOrigins(Arrays.asList(
+                            "http://localhost:3000",
+                            "http://localhost:8080",
+                            "https://aimuse-one.vercel.app",
+                            "https://*.ngrok-free.app"
+                    ));
                     configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
                     configuration.setAllowedHeaders(Arrays.asList("*"));
                     configuration.setAllowCredentials(true);
