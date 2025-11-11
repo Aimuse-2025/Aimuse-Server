@@ -1,7 +1,9 @@
 package com.aimusic.aimuse_server.global.security.jwt;
 
+import com.aimusic.aimuse_server.domain.user.entity.User;
+import com.aimusic.aimuse_server.domain.user.repository.UserRepository;
+import com.aimusic.aimuse_server.global.security.UserDetailsImpl;
 import io.jsonwebtoken.*;
-import java.nio.charset.StandardCharsets;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,20 +11,16 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.stream.Collectors;
 
-/**
- * JWT 토큰 생성, 정보 추출, 유효성 검증 유틸리티
- * Spring Security 인증 과정에서 핵심 역할을 수행함
- */
 @Slf4j
 @Component
 public class JwtTokenProvider {
@@ -30,20 +28,13 @@ public class JwtTokenProvider {
     private final Key key;
     private static final long ACCESS_TOKEN_EXPIRE_TIME = 1000 * 60 * 60 * 24;
     private static final String AUTHORITIES_KEY = "auth";
+    private final UserRepository userRepository;
 
-    /**
-     * 환경 설정에서 주입된 비밀키로 암호화 Key 객체를 생성 완료
-     * @param secretKey Base64 인코딩된 비밀 키 문자열
-     */
-    public JwtTokenProvider(@Value("${jwt.secret}") String secretKey) {
+    public JwtTokenProvider(@Value("${jwt.secret}") String secretKey, UserRepository userRepository) {
         this.key = Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
+        this.userRepository = userRepository;
     }
 
-    /**
-     * 사용자 인증 정보를 기반으로 AccessToken을 생성 완료
-     * @param authentication 사용자 인증 객체
-     * @return 생성된 JWT Access Token
-     */
     public String generateToken(Authentication authentication) {
         String authorities = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
@@ -52,21 +43,14 @@ public class JwtTokenProvider {
         long now = (new Date()).getTime();
         Date accessTokenExpiresIn = new Date(now + ACCESS_TOKEN_EXPIRE_TIME);
 
-        String accessToken = Jwts.builder()
+        return Jwts.builder()
                 .setSubject(authentication.getName())
                 .claim(AUTHORITIES_KEY, authorities)
                 .setExpiration(accessTokenExpiresIn)
                 .signWith(key, SignatureAlgorithm.HS512)
                 .compact();
-
-        return accessToken;
     }
 
-    /**
-     * JWT 토큰을 복호화하여 인증 정보를 추출 완료
-     * @param accessToken 검증할 JWT Access Token
-     * @return Spring Security Authentication 객체 반환
-     */
     public Authentication getAuthentication(String accessToken) {
         Claims claims = parseClaims(accessToken);
 
@@ -79,16 +63,15 @@ public class JwtTokenProvider {
                         .map(SimpleGrantedAuthority::new)
                         .collect(Collectors.toList());
 
-        UserDetails principal = new User(claims.getSubject(), "", authorities);
+        String email = claims.getSubject();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+
+        UserDetails principal = new UserDetailsImpl(user);
 
         return new UsernamePasswordAuthenticationToken(principal, "", authorities);
     }
 
-    /**
-     * JWT 토큰의 유효성을 검증 완료
-     * @param token 검증할 JWT Access Token
-     * @return 토큰 유효 시 true, 아니면 false
-     */
     public boolean validateToken(String token) {
         try {
             Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
