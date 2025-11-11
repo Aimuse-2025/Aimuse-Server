@@ -52,6 +52,7 @@ public class SecurityConfig {
                     configuration.setAllowedOrigins(Arrays.asList(
                             "http://localhost:3000",
                             "http://localhost:8080",
+                            "http://localhost:5173",
                             "https://aimuse-one.vercel.app",
                             "https://*.ngrok-free.app"
                     ));
