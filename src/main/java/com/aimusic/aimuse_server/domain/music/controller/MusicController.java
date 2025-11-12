@@ -1,6 +1,7 @@
 package com.aimusic.aimuse_server.domain.music.controller;
 
 import com.aimusic.aimuse_server.domain.music.dto.AiCallbackRequestDto;
+import com.aimusic.aimuse_server.domain.music.dto.MusicResultResponseDto;
 import com.aimusic.aimuse_server.domain.music.dto.MusicUploadResponseDto;
 import com.aimusic.aimuse_server.domain.music.service.MusicService;
 import com.aimusic.aimuse_server.global.security.UserDetailsImpl;
@@ -73,5 +74,18 @@ public class MusicController {
             log.error("AI 콜백 처리 중 심각한 오류 발생", e);
             return ResponseEntity.internalServerError().body("Callback processing failed.");
         }
+    }
+
+    /**
+     * 완성 파일 정보 조회 API (프런트엔드 호출)
+     */
+    @Operation(summary = "음악 처리 결과 조회")
+    @GetMapping("/{musicId}")
+    public ResponseEntity<MusicResultResponseDto> getMusicResult(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long musicId) {
+
+        MusicResultResponseDto result = musicService.getMusicResult(userDetails.getUserId(), musicId);
+        return ResponseEntity.ok(result);
     }
 }

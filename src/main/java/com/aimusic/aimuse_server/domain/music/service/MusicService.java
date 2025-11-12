@@ -1,6 +1,7 @@
 package com.aimusic.aimuse_server.domain.music.service;
 
 import com.aimusic.aimuse_server.domain.music.dto.AiCallbackRequestDto;
+import com.aimusic.aimuse_server.domain.music.dto.MusicResultResponseDto;
 import com.aimusic.aimuse_server.domain.music.dto.MusicUploadResponseDto;
 import com.aimusic.aimuse_server.domain.music.entity.Music;
 import com.aimusic.aimuse_server.domain.music.entity.MusicStatus;
@@ -106,5 +107,25 @@ public class MusicService {
 
         musicRepository.save(music);
         log.info("[Callback] Music ID: {} 상태 업데이트 완료: {}", music.getId(), music.getStatus());
+    }
+
+    /**
+     * 4th 완성 파일 정보 조회 로직 (프런트엔드 요청)
+     */
+    @Transactional(readOnly = true)
+    public MusicResultResponseDto getMusicResult(Long userId, Long musicId) {
+        Music music = musicRepository.findById(musicId)
+                .orElseThrow(() -> new RuntimeException("Music not found"));
+
+        if (!music.getUser().getId().equals(userId)) {
+            throw new RuntimeException("Unauthorized access");
+        }
+
+        String resultUrl = null;
+        if (music.getStatus() == MusicStatus.COMPLETED) {
+            resultUrl = s3Service.generatePresignedUrl(music.getResultMusicS3Key());
+        }
+
+        return new MusicResultResponseDto(musicId, music.getStatus(), resultUrl);
     }
 }
