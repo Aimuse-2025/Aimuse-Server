@@ -1,13 +1,52 @@
 package com.aimusic.aimuse_server.domain.music.dto;
 
-import lombok.Data;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// AI가 보내줄 JSON 스펙
-@Data
+@Getter
 @NoArgsConstructor
+@AllArgsConstructor
 public class AiCallbackRequestDto {
+
     private Long musicId;
-    private String status; // COMPLETED or FAILED
-    private String resultMusicS3Key; // (성공 시) AI가 생성한 파일의 S3 키
+    private String status;  // "COMPLETED" or "FAILED"
+    private FileInfo files;
+    private MetadataInfo metadata;
+    private ErrorInfo error;
+
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FileInfo {
+        private S3FileDto pdf;
+        private S3FileDto practiceData;
+        private S3FileDto accompaniment;
+    }
+
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class S3FileDto {
+        private String s3Key;
+        private String url;
+    }
+
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MetadataInfo {
+        private Integer duration;
+        private Integer bpm;
+        private String timeSignature;
+        private String keySignature;
+    }
+
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ErrorInfo {
+        private String code;
+        private String message;
+    }
 }

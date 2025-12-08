@@ -1,8 +1,6 @@
 package com.aimusic.aimuse_server.domain.music.service;
 
-import com.aimusic.aimuse_server.domain.music.dto.AiCallbackRequestDto;
-import com.aimusic.aimuse_server.domain.music.dto.MusicResultResponseDto;
-import com.aimusic.aimuse_server.domain.music.dto.MusicUploadResponseDto;
+import com.aimusic.aimuse_server.domain.music.dto.*;
 import com.aimusic.aimuse_server.domain.music.entity.Music;
 import com.aimusic.aimuse_server.domain.music.entity.MusicStatus;
 import com.aimusic.aimuse_server.domain.music.repository.MusicRepository;
@@ -11,13 +9,12 @@ import com.aimusic.aimuse_server.domain.user.entity.User;
 import com.aimusic.aimuse_server.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate; // AI 서버 호출용
-import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.client.RestTemplate;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -29,103 +26,152 @@ public class MusicService {
     private final S3Service s3Service;
     private final MusicRepository musicRepository;
     private final UserRepository userRepository;
-    private final RestTemplate restTemplate; // AI 서버 호출용
+    private final RestTemplate restTemplate;
 
-    // AI 서버의 엔드포인트 (추후 AI 팀과 협의)
-    private final String AI_SERVER_PROCESS_URL = "http://ai-server-domain.com/api/v1/process";
+    @Value("${ai.server.url}")
+    private String aiServerUrl;
 
     /**
-     * 1st MP3 업로드 및 AI 호출 요청
+     * 1. 음악 업로드 (Presigned URL 생성)
      */
     @Transactional
-    public MusicUploadResponseDto uploadMusic(Long userId, MultipartFile file) throws IOException {
+    public MusicUploadResponseDto uploadMusic(Long userId, MusicUploadRequestDto request) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
 
+        // Presigned URL 생성
+        String fileName = request.getFileName();
+        String presignedUrl = s3Service.generatePresignedUrlForUpload(fileName);
+        String s3Key = s3Service.generateS3Key(fileName);
+
+        // Music 엔티티 생성 (상태: UPLOADED)
         Music music = new Music();
         music.setUser(user);
-        music.setStatus(MusicStatus.UPLOADING);
-        music.setRawMusicS3Key("temp_key"); // 임시 키 (Not Null 제약조건)
+        music.setOriginalS3Key(s3Key);
+        music.setStatus(MusicStatus.UPLOADED);
 
         Music savedMusic = musicRepository.save(music);
-        Long musicId = savedMusic.getId();
 
-        String s3Key = s3Service.uploadFile(file, "music/raw/" + musicId + "_" + file.getOriginalFilename());
-
-        savedMusic.setRawMusicS3Key(s3Key);
-        savedMusic.setStatus(MusicStatus.PENDING);
-        musicRepository.save(savedMusic);
-
-        callAIServerAsync(musicId, s3Key);
-
-        return new MusicUploadResponseDto(musicId, savedMusic.getStatus(), userId);
+        return new MusicUploadResponseDto(
+                savedMusic.getId(),
+                presignedUrl,
+                s3Key
+        );
     }
 
     /**
-     * 2nd (비동기) AI 서버로 실제 요청
+     * 2. AI 서버에 변환 요청 (비동기)
      */
     @Async
     @Transactional
-    public void callAIServerAsync(Long musicId, String s3Key) {
-        log.info("[Async] AI 서버 호출 시작. Music ID: {}", musicId);
-
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("musicId", musicId);
-        requestBody.put("s3Key", s3Key);
+    public void requestAiConversion(Long musicId) {
+        Music music = musicRepository.findById(musicId)
+                .orElseThrow(() -> new RuntimeException("Music not found: " + musicId));
 
         try {
-            restTemplate.postForEntity(AI_SERVER_PROCESS_URL, requestBody, String.class);
-            log.info("[Async] AI 서버 호출 성공 Music ID: {}", musicId);
+            // 상태 변경: PROCESSING
+            music.startProcessing();
+
+            // AI 서버 호출
+            String url = aiServerUrl + "/api/music/convert";
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("musicId", musicId);
+            requestBody.put("s3Key", music.getOriginalS3Key());
+
+            log.info("[AI 요청] musicId={}, s3Key={}", musicId, music.getOriginalS3Key());
+
+            restTemplate.postForEntity(url, requestBody, String.class);
+
+            log.info("[AI 요청 성공] musicId={}", musicId);
 
         } catch (Exception e) {
-            log.error("[Async] AI 서버 호출 실패 Music ID: {}", musicId, e);
-
-            Music music = musicRepository.findById(musicId)
-                    .orElseThrow(() -> new RuntimeException("Music not found: " + musicId));
-            music.setStatus(MusicStatus.FAILED);
-            musicRepository.save(music);
+            log.error("[AI 요청 실패] musicId={}", musicId, e);
+            music.markAsFailed();
+            throw new RuntimeException("AI 서버 연동 실패");
         }
     }
 
     /**
-     * 3rd (콜백) AI가 처리를 완료하고 호출하는 API의 서비스 로직
+     * 3. AI Callback 처리
      */
     @Transactional
-    public void processAiCallback(AiCallbackRequestDto callbackDto) {
-        log.info("[Callback] AI 콜백 수신. Music ID: {}", callbackDto.getMusicId());
+    public void handleAiCallback(AiCallbackRequestDto callback) {
+        log.info("[Callback 수신] musicId={}, status={}",
+                callback.getMusicId(), callback.getStatus());
 
-        Music music = musicRepository.findById(callbackDto.getMusicId())
-                .orElseThrow(() -> new RuntimeException("Callback Error: Music not found: " + callbackDto.getMusicId()));
+        Music music = musicRepository.findById(callback.getMusicId())
+                .orElseThrow(() -> new RuntimeException("Music not found: " + callback.getMusicId()));
 
-        if ("COMPLETED".equalsIgnoreCase(callbackDto.getStatus())) {
-            music.setStatus(MusicStatus.COMPLETED);
-            music.setResultMusicS3Key(callbackDto.getResultMusicS3Key());
-        } else {
-            music.setStatus(MusicStatus.FAILED);
+        if ("COMPLETED".equals(callback.getStatus())) {
+            // 성공: S3 키 업데이트
+            AiCallbackRequestDto.FileInfo files = callback.getFiles();
+            AiCallbackRequestDto.MetadataInfo metadata = callback.getMetadata();
+
+            music.updateWithAiResult(
+                    files.getPdf().getS3Key(),
+                    files.getPracticeData().getS3Key(),
+                    files.getAccompaniment().getS3Key(),
+                    metadata.getBpm(),
+                    metadata.getDuration(),
+                    metadata.getTimeSignature(),
+                    metadata.getKeySignature()
+            );
+
+            log.info("[Callback 처리 완료] musicId={}", callback.getMusicId());
+
+        } else if ("FAILED".equals(callback.getStatus())) {
+            // 실패: 상태 변경
+            music.markAsFailed();
+
+            log.error("[Callback 실패] musicId={}, error={}",
+                    callback.getMusicId(),
+                    callback.getError().getMessage());
         }
-
-        musicRepository.save(music);
-        log.info("[Callback] Music ID: {} 상태 업데이트 완료: {}", music.getId(), music.getStatus());
     }
 
     /**
-     * 4th 완성 파일 정보 조회 로직 (프런트엔드 요청)
+     * 4. 음악 결과 조회
      */
     @Transactional(readOnly = true)
     public MusicResultResponseDto getMusicResult(Long userId, Long musicId) {
         Music music = musicRepository.findById(musicId)
                 .orElseThrow(() -> new RuntimeException("Music not found"));
 
+        // 권한 확인
         if (!music.getUser().getId().equals(userId)) {
             throw new RuntimeException("Unauthorized access");
         }
 
-        String resultUrl = null;
-        if (music.getStatus() == MusicStatus.COMPLETED) {
-            resultUrl = s3Service.generatePresignedUrl(music.getResultMusicS3Key());
+        // 처리 완료 확인
+        if (music.getStatus() != MusicStatus.COMPLETED) {
+            return new MusicResultResponseDto(
+                    musicId,
+                    music.getStatus().name(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
         }
 
-        return new MusicResultResponseDto(musicId, music.getStatus(), resultUrl);
+        // Presigned URL 생성
+        String pdfUrl = s3Service.generatePresignedUrlForDownload(music.getResultS3Key());
+        String practiceDataUrl = s3Service.generatePresignedUrlForDownload(music.getPracticeDataS3Key());
+        String accompanimentUrl = s3Service.generatePresignedUrlForDownload(music.getAccompanimentS3Key());
+
+        return new MusicResultResponseDto(
+                musicId,
+                music.getStatus().name(),
+                pdfUrl,
+                practiceDataUrl,
+                accompanimentUrl,
+                music.getBpm(),
+                music.getDuration(),
+                music.getTimeSignature()
+        );
     }
 }
