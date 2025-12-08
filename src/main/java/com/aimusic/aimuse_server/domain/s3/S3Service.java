@@ -12,6 +12,8 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -65,6 +67,57 @@ public class S3Service {
                 .build();
 
         PresignedGetObjectRequest presignedRequest = s3Presigner.presignGetObject(presignRequest);
+
+        return presignedRequest.url().toString();
+    }
+
+    /**
+     * S3 키 생성 (UUID 사용)
+     */
+    public String generateS3Key(String fileName) {
+        String uuid = UUID.randomUUID().toString();
+        return "music/raw/" + uuid + "_" + fileName;
+    }
+
+    /**
+     * Presigned URL 생성 (업로드용) - 1시간 유효
+     */
+    public String generatePresignedUrlForUpload(String fileName) {
+        String s3Key = generateS3Key(fileName);
+
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(s3Key)
+                .contentType("audio/mpeg")
+                .build();
+
+        PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofMinutes(60))
+                .putObjectRequest(putObjectRequest)
+                .build();
+
+        PresignedPutObjectRequest presignedRequest =
+                s3Presigner.presignPutObject(presignRequest);
+
+        return presignedRequest.url().toString();
+    }
+
+    /**
+     * Presigned URL 생성 (다운로드용) - 1시간 유효
+     */
+    public String generatePresignedUrlForDownload(String s3Key) {
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(bucketName)
+                .key(s3Key)
+                .build();
+
+        GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofMinutes(60))
+                .getObjectRequest(getObjectRequest)
+                .build();
+
+        PresignedGetObjectRequest presignedRequest =
+                s3Presigner.presignGetObject(presignRequest);
 
         return presignedRequest.url().toString();
     }

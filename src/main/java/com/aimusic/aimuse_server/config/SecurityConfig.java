@@ -83,6 +83,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> {
                     auth
                             .requestMatchers("/api/user/join", "/api/user/login").permitAll()
+                            .requestMatchers("/api/music/callback").permitAll()
                             .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                             .requestMatchers("/ws/**").permitAll()
                             .anyRequest().authenticated();
